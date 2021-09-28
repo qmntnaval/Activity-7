@@ -1,0 +1,54 @@
+-- 
+- hosts: elkservers
+  remote_user: ubntu
+  become: yes
+  become_user: root
+  roles:
+    - { role: java }
+    - { role: elastichsearch }
+    - { role: kibana }
+    - { role: metricbeat }
+
+- hosts: all:!switches:!oobservers:!idrac:!supermicro_6048r:!supermicro_6018:!supermicro_1028r:devices:!dns_only
+  remote_user: "{{ ansible_system_user }}"
+  roles:
+     - { role: nagios_client }
+     - { role: firewall_client, when: management_firewall_client|bool }
+
+- hosts: nagios
+  remote_user: "{{ ansible_system_user }}"
+  roles:
+     - { role: nagios }
+     - { role: firewall, when: manage_firewall|bool }
+     - { role: instructions }
+
+- hosts: HOST
+  vars: 
+  grafana_version: 2.5.0
+  arch: amd64
+  grafana_filename: grafana_{{ grafana_version }}_{{ arch }}.deb
+
+ taks:
+  - name: Verify virsion 
+    commnad: dpkg-query -W --showformat='${version}' grafana
+    register: grafana_check_version
+    failed_when: grafana_check_version.rc > 1
+    changed_when: (grafana_check_version.rc ==1) or
+                  (grafana_check_version | version_comapre("{{ grafana_version }}", "<"))
+
+  - name: Download grafana deb file
+    get_url:
+        url = "https://grafanarel.s3.amazonaws.com/builds/{{ grafana_file }}"
+      when: grafana_check_version.changed
+
+  - name: Install grafana
+    apt: deb= "tmp/{{ grafana_filename }}" state=present
+    when: grafana_check_version.changed
+
+- hosts: prometheus
+  become: yes
+  become_user: root
+  become_method: sudo
+  roles:
+     - prometheus
+    
